@@ -61,6 +61,35 @@ static const XMVECTORF32 s_LightDir = { -0.577f, 0.577f, -0.577f, 0.f };
 
 float                       g_fModelPuffiness = 0.0f;
 bool                        g_bSpinning = true;
+#define PCIE_BW 1
+#if PCIE_BW
+float pcie_time_in_ms = 0.0;
+int copies = 100;
+
+static bool have_clockfreq = false;
+static LARGE_INTEGER clock_freq;
+static inline uint64_t get_clockfreq(void)
+{
+	if (!have_clockfreq) {
+		QueryPerformanceFrequency(&clock_freq);
+		have_clockfreq = true;
+	}
+
+	return clock_freq.QuadPart;
+}
+uint64_t os_gettime_ns(void)
+{
+	LARGE_INTEGER current_time;
+	double time_val;
+
+	QueryPerformanceCounter(&current_time);
+	time_val = (double)current_time.QuadPart;
+	time_val *= 1000000000.0;
+	time_val /= (double)get_clockfreq();
+
+	return (uint64_t)time_val;
+}
+#endif
 
 //--------------------------------------------------------------------------------------
 // UI control IDs
@@ -271,6 +300,14 @@ void RenderText()
     g_pTxtHelper->SetForegroundColor( Colors::Yellow );
     g_pTxtHelper->DrawTextLine( DXUTGetFrameStats( DXUTIsVsyncEnabled() ) );
     g_pTxtHelper->DrawTextLine( DXUTGetDeviceStats() );
+#if PCIE_BW
+	//1920 * 1080 * 4 * copies	: pcie_time_in_ms
+	//x MB						: 1000 ms
+	float x = 1920.0 * 1080 * 4 * copies * 1000 / pcie_time_in_ms / 1024 / 1024;
+	wchar_t buf[64];
+    swprintf(buf, sizeof(buf) / sizeof(*buf), L"time=%f ms, PCIE bandwidth = %f MB/s", pcie_time_in_ms, x);
+	g_pTxtHelper->DrawTextLine( buf );
+#endif
     g_pTxtHelper->End();
 }
 
@@ -352,6 +389,70 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 
         pd3dImmediateContext->DrawIndexed( ( UINT )pSubset->IndexCount, 0, ( UINT )pSubset->VertexStart );
     }
+
+#if PCIE_BW
+	
+//Resource	Usage	Default	Dynamic	Immutable	Staging
+//GPU-Read			yes		yes		yes			yes (through CopyResource)
+//GPU-Write			yes							yes (through CopyResource)
+//CPU-Read										yes
+//CPU-Write					yes					yes
+
+//D3D11_USAGE_STAGING means put it in system memory, and the GPU can't access it.
+//D3D11_USAGE_DEFAULT put it in the VRAM, the CPU can't access it.
+//D3D11_USAGE_IMMUTABLE is basically the same as D3D11_USAGE_DEFAULT, but only initialize it once in the creation call.
+//D3D11_USAGE_DYNAMIC means put it in shared system memory, the CPU & GPU both need access to it.
+
+	D3D11_TEXTURE2D_DESC desc_pcie = { 0 };
+	desc_pcie.Width = 1920;
+	desc_pcie.Height = 1080;
+	desc_pcie.MipLevels = 1;
+	desc_pcie.ArraySize = 1;
+	desc_pcie.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+	desc_pcie.SampleDesc.Count = 1;
+	desc_pcie.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc_pcie.Usage = D3D11_USAGE_STAGING;
+
+	ID3D11Texture2D* pSurf_pcie;
+	hr = pd3dDevice->CreateTexture2D(&desc_pcie, NULL, &pSurf_pcie);
+	if (FAILED(hr)) {
+		return;
+	}
+
+	D3D11_TEXTURE2D_DESC desc_video = { 0 };
+	desc_video.Width = 1920;
+	desc_video.Height = 1080;
+	desc_video.MipLevels = 1;
+	desc_video.ArraySize = 1;
+	desc_video.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+	desc_video.SampleDesc.Count = 1;
+	desc_video.Usage = D3D11_USAGE_DEFAULT;
+
+	ID3D11Texture2D* pSurf_video;
+	hr = pd3dDevice->CreateTexture2D(&desc_video, NULL, &pSurf_video);
+	if (FAILED(hr)) {
+		return;
+	}
+
+	uint64_t begin = os_gettime_ns();
+
+	for (int i = 0; i < copies; i++)
+	{
+		pd3dImmediateContext->CopyResource((ID3D11Resource *)pSurf_pcie, (ID3D11Resource *)pSurf_video);
+	}
+
+	// make sure the copy is finished
+	D3D11_MAPPED_SUBRESOURCE    lockedRect = { 0 };
+	D3D11_MAP					mapType = D3D11_MAP_READ;
+	UINT						mapFlags = 0;// D3D11_MAP_FLAG_DO_NOT_WAIT;
+	pd3dImmediateContext->Map((ID3D11Resource *)pSurf_pcie, 0, mapType, mapFlags, &lockedRect);
+	pd3dImmediateContext->Unmap((ID3D11Resource *)pSurf_pcie, 0);
+
+	pcie_time_in_ms = (os_gettime_ns() - begin) / 1000000.0;
+
+	pSurf_pcie->Release();
+	pSurf_video->Release();
+#endif
 
     g_HUD.OnRender( fElapsedTime );
     g_SampleUI.OnRender( fElapsedTime );
