@@ -101,6 +101,8 @@ uint64_t os_gettime_ns(void)
 #define IDC_TOGGLESPIN          5
 #define IDC_PUFF_SCALE          6
 #define IDC_PUFF_STATIC         7
+#define IDC_LOOP_MINUS          8
+#define IDC_LOOP_ADD            9
 
 
 //--------------------------------------------------------------------------------------
@@ -304,8 +306,8 @@ void RenderText()
 	//1920 * 1080 * 4 * copies	: pcie_time_in_ms
 	//x MB						: 1000 ms
 	float x = 1920.0 * 1080 * 4 * copies * 1000 / pcie_time_in_ms / 1024 / 1024;
-	wchar_t buf[64];
-    swprintf(buf, sizeof(buf) / sizeof(*buf), L"time=%f ms, PCIE bandwidth = %f MB/s", pcie_time_in_ms, x);
+	wchar_t buf[128];
+    swprintf(buf, sizeof(buf) / sizeof(*buf), L"loop=%d, time=%f ms, PCIE bandwidth = %f MB/s", copies,  pcie_time_in_ms, x);
 	g_pTxtHelper->DrawTextLine( buf );
 #endif
     g_pTxtHelper->End();
@@ -555,6 +557,16 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
         case IDC_TOGGLEWARP:
             DXUTToggleWARP();
             break;
+        case IDC_LOOP_MINUS:
+            copies -= 10;
+            if (copies < 10)
+                copies = 10;
+            break;
+        case IDC_LOOP_ADD:
+            copies += 10;
+            if (copies > 500)
+                copies = 500;
+            break;
         case IDC_CHANGEDEVICE:
             g_SettingsDlg.SetActive( !g_SettingsDlg.IsActive() );
             break;
@@ -650,6 +662,8 @@ void InitApp()
     g_HUD.AddButton( IDC_CHANGEDEVICE, L"Change device (F2)", 0, iY += 26, 170, 22, VK_F2 );
     g_HUD.AddButton( IDC_TOGGLEREF, L"Toggle REF (F3)", 0, iY += 26, 170, 22, VK_F3 );
     g_HUD.AddButton( IDC_TOGGLEWARP, L"Toggle WARP (F4)", 0, iY += 26, 170, 22, VK_F4 );
+    g_HUD.AddButton(IDC_LOOP_MINUS, L"loop-", 0, iY += 26, 70, 22);
+    g_HUD.AddButton(IDC_LOOP_ADD, L"loop+", 100, iY, 70, 22);
 
     g_SampleUI.SetCallback( OnGUIEvent ); iY = 10;
 
