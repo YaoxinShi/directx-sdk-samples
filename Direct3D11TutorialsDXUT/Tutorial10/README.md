@@ -9,3 +9,5 @@
 * UI
 * ├───dxutcontrols.dds
 * └───Font.dds
+
+When loop times is big enough, GPU is 100% used and the bandwidth value is stable.
